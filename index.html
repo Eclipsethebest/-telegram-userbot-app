@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telegram UserBot Panel</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 20px; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .container { background: #1e293b; padding: 30px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); width: 100%; max-width: 450px; }
+        h2 { text-align: center; color: #38bdf8; margin-bottom: 20px; }
+        .step { display: none; }
+        .step.active { display: block; }
+        input, select, textarea { width: 100%; padding: 12px; margin: 10px 0; background: #0f172a; border: 1px solid #334155; color: white; border-radius: 8px; box-sizing: border-box; }
+        button { width: 100%; padding: 12px; background: #0284c7; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; margin-top: 10px; transition: 0.2s; }
+        button:hover { background: #0ea5e9; }
+        .admin-btn { background: #475569; }
+        .admin-btn:hover { background: #64748b; }
+        .timer-box { background: #0f172a; padding: 15px; border-radius: 8px; text-align: center; margin: 15px 0; border: 1px solid #38bdf8; }
+        .timer { font-size: 24px; font-weight: bold; color: #38bdf8; }
+        .key-list { background: #0f172a; padding: 10px; border-radius: 8px; max-height: 150px; overflow-y: auto; font-size: 13px; margin-top: 10px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2>Telegram SaaS Panel</h2>
+
+    <div id="step-phone" class="step active">
+        <h3>1. Telegram Numarası</h3>
+        <input type="text" id="phone" placeholder="+905xxxxxxxxx">
+        <button onclick="sendCode()">Kod İste</button>
+    </div>
+
+    <div id="step-code" class="step">
+        <h3>2. Doğrulama Kodu</h3>
+        <input type="text" id="sms-code" placeholder="Telegram'a gelen kod">
+        <button onclick="verifyCode()">Kodu Onayla</button>
+    </div>
+
+    <div id="step-password" class="step">
+        <h3>Bulut Şifresi</h3>
+        <input type="password" id="cloud-password" placeholder="İki aşamalı doğrulama şifresi">
+        <button onclick="verifyPassword()">Şifreyi Onayla</button>
+    </div>
+
+    <div id="step-license" class="step">
+        <h3>3. Lisans Key</h3>
+        <p id="logged-user" style="font-size:12px; color:#38bdf8;"></p>
+        <input type="text" id="license-key" placeholder="KEY-...">
+        <button onclick="verifyLicense()">Key'i Aktive Et</button>
+        <button class="admin-btn" onclick="toggleAdminPanel()">Admin Paneli</button>
+        
+        <div id="admin-panel" style="display:none; margin-top:15px; border-top:1px dashed #475569; padding-top:10px;">
+            <h4 style="color:#f43f5e; margin:5px 0;">Admin (ID: 8916532114)</h4>
+            <label style="font-size:12px; color:#94a3b8;">Key Süresi (Dakika cinsinden, 0 = Sınırsız):</label>
+            <input type="number" id="key-duration-input" value="60" placeholder="Örn: 60, 1000 vb.">
+            <button onclick="adminCreateKey()" style="background:#e11d48;">Key Üret</button>
+            <div class="key-list" id="key-list-box">Yükleniyor...</div>
+        </div>
+    </div>
+
+    <div id="step-timer" class="step">
+        <h3>Lisans Aktif!</h3>
+        <div class="timer-box">
+            <p>Kalan Süre:</p>
+            <div id="countdown" class="timer">Hesaplanıyor...</div>
+        </div>
+        <button onclick="showAutomation()">Otomasyona Geç</button>
+    </div>
+
+    <div id="step-automation" class="step">
+        <h3>4. Mesaj Otomasyonu</h3>
+        <input type="text" id="target-chat" placeholder="Hedef Sohbet (Username/ID)">
+        <textarea id="msg-content" placeholder="Mesajınız"></textarea>
+        <input type="number" id="msg-interval" placeholder="Aralık (Saniye)" value="2">
+        <input type="number" id="msg-count" placeholder="Adet" value="5">
+        <button onclick="startFlood()" style="background:#10b981;">Başlat</button>
+    </div>
+</div>
+
+<script>
+    let remainingSeconds = 0;
+    let timerInterval = null;
+    const ADMIN_ID = "8916532114";
+
+    function showStep(id) {
+        document.querySelectorAll('.step').forEach(el => el.classList.remove('active'));
+        document.getElementById(id).classList.add('active');
+    }
+
+    async function sendCode() {
+        let phone = document.getElementById('phone').value;
+        let res = await fetch('/api/login/send_code', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({phone}) });
+        let data = await res.json();
+        if(data.success) showStep('step-code'); else alert(data.message);
+    }
+
+    async function verifyCode() {
+        let code = document.getElementById('sms-code').value;
+        let res = await fetch('/api/login/verify_code', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({code}) });
+        let data = await res.json();
+        if(data.success) { document.getElementById('logged-user').innerText = "Bağlı: " + data.user_name; showStep('step-license'); }
+        else if(data.need_password) showStep('step-password'); else alert(data.message);
+    }
+
+    async function verifyPassword() {
+        let password = document.getElementById('cloud-password').value;
+        let res = await fetch('/api/login/verify_password', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({password}) });
+        let data = await res.json();
+        if(data.success) { document.getElementById('logged-user').innerText = "Bağlı: " + data.user_name; showStep('step-license'); }
+        else alert(data.message);
+    }
+
+    async function verifyLicense() {
+        let key = document.getElementById('license-key').value;
+        let res = await fetch('/api/check_license', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({key}) });
+        let data = await res.json();
+        if(data.success) {
+            if(data.unlimited) { alert("Sınırsız Lisans!"); showStep('step-automation'); }
+            else { remainingSeconds = data.remaining_seconds; showStep('step-timer'); startCountdown(); }
+        } else alert(data.message);
+    }
+
+    function startCountdown() {
+        clearInterval(timerInterval);
+        timerInterval = setInterval(() => {
+            if(remainingSeconds <= 0) {
+                clearInterval(timerInterval);
+                alert("Süre bitti! Uygulama kapatılıyor...");
+                location.reload();
+            } else {
+                let m = Math.floor(remainingSeconds / 60), s = remainingSeconds % 60;
+                document.getElementById('countdown').innerText = `${m}dk ${s}sn`;
+                remainingSeconds--;
+            }
+        }, 1000);
+    }
+
+    function toggleAdminPanel() {
+        let p = document.getElementById('admin-panel');
+        p.style.display = p.style.display === 'none' ? 'block' : 'none';
+        if(p.style.display === 'block') loadAdminKeys();
+    }
+
+    async function adminCreateKey() {
+        let duration = document.getElementById('key-duration-input').value;
+        let res = await fetch('/api/admin/create_key', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({admin_id: ADMIN_ID, duration_minutes: duration}) });
+        let data = await res.json();
+        if(data.success) { alert("Key Üretildi: " + data.key); loadAdminKeys(); } else alert("Hata!");
+    }
+
+    async function loadAdminKeys() {
+        let res = await fetch('/api/admin/list_keys', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({admin_id: ADMIN_ID}) });
+        let data = await res.json();
+        if(data.success) {
+            let html = "";
+            for(let [k, v] of Object.entries(data.keys)) {
+                let owner = v.used_by_name ? `Kullanan: ${v.used_by_name}` : "Boşta";
+                let durText = v.duration === 0 ? "Sınırsız" : `${Math.floor(v.duration/60)} dk`;
+                html += `<div><b>${k}</b> (${durText}) - [${owner}]</div><hr style="border-color:#334155; margin:4px 0;">`;
+            }
+            document.getElementById('key-list-box').innerHTML = html;
+        }
+    }
+
+    function showAutomation() { showStep('step-automation'); }
+
+    async function startFlood() {
+        let chat = document.getElementById('target-chat').value;
+        let message = document.getElementById('msg-content').value;
+        let interval = document.getElementById('msg-interval').value;
+        let count = document.getElementById('msg-count').value;
+        let res = await fetch('/api/start_flood', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({chat, message, interval, count}) });
+        let data = await res.json();
+        alert(data.message);
+    }
+</script>
+</body>
+</html>
